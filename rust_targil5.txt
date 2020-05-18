@@ -1,0 +1,996 @@
+use std::env;
+use std::path::Path;
+use std::fs::File;
+use std::io::BufReader;
+use std::io::BufWriter;
+use std::io;
+use std::fs::{self, DirEntry};
+use std::error::Error;
+use std::io::prelude::*;
+use std::collections::LinkedList;
+
+//shany raz 204775597 & avishag  naaman 307866392
+
+struct Symbol {
+	Kind:String,
+    Type:String,
+    Name:String,
+	Index:i8 
+}
+
+impl Symbol {
+	pub fn new(kind_: &str, type_: &str, name_: &str,index:i8) -> Symbol {
+
+		Symbol
+        {
+            Kind:kind_.to_string(),
+            Type:type_.to_string(),
+            Name:name_.to_string(),
+            Index:index,
+        }
+    }
+}
+
+struct SymbolTable {
+	ClassSymbolTable:LinkedList<Symbol>,
+    MethodSymbolTable:LinkedList<Symbol>,
+    StaticIndex:i8,
+    FieldIndex:i8,
+	ArgumentIndex:i8,
+	VarIndex:i8	
+}
+
+impl SymbolTable 
+{
+	pub fn new() -> SymbolTable {
+		SymbolTable 
+        {
+            ClassSymbolTable:LinkedList::new(),
+            MethodSymbolTable:LinkedList::new(),
+            StaticIndex:0,
+            FieldIndex:0,
+		    ArgumentIndex:0,
+	        VarIndex:0	
+        }
+    }
+
+    pub fn methodSymbolTableInit(&mut self) {
+	    self.MethodSymbolTable.clear();
+	    self.ArgumentIndex = 0;
+	    self.VarIndex = 0;
+    }
+
+    pub fn classSymbolTableInit(&mut self)
+    {
+        self.ClassSymbolTable.clear();
+        self.FieldIndex = 0;
+        self.StaticIndex=0;
+    }
+
+    pub fn insertSymbol(&mut self,s:Symbol)
+    {
+        let mut sym = Symbol::new(&s.Kind,&s.Type,&s.Name,0);
+      
+        match &sym.Kind as &str {
+            "static" => {
+                            sym.Index = self.StaticIndex;
+                            self.StaticIndex += 1;
+                            self.ClassSymbolTable.push_back(sym);
+                        }
+            "field" =>  {
+                            sym.Index = self.FieldIndex;
+	                    	self.FieldIndex += 1;
+	                    	self.ClassSymbolTable.push_back(sym);
+                        }
+          "argument" => {
+                             sym.Index = self.ArgumentIndex;
+	                         self.ArgumentIndex += 1;
+	                         self.MethodSymbolTable.push_back(sym);
+                        }
+               "var" => {
+                              sym.Index = self.VarIndex;
+		                      self.VarIndex += 1;
+		                      self.MethodSymbolTable.push_back(sym);
+                        }
+            _ => {}
+        }
+
+    }
+
+    pub fn findSymbol(&mut self, n:String) -> Symbol
+    {
+        //let mut sym = Symbol::new(&"".to_string(),&"".to_string(),&"".to_string());
+        for s in &self.MethodSymbolTable
+        {
+            if s.Name == n {
+            let tempName = &s.Name;
+			let tempIndex = &s.Index;
+			let tempType = &s.Type;
+			let tempKind = &s.Kind;
+            return Symbol::new(tempKind, tempType, tempName,*tempIndex);
+            }
+        }
+
+        for r in &self.ClassSymbolTable
+        { 
+            if r.Name == n {
+            let tempName = &r.Name;
+			let tempIndex = &r.Index;
+			let tempType = &r.Type;
+			let tempKind = &r.Kind;
+            return Symbol::new(tempKind, tempType, tempName,*tempIndex);
+            }
+        }
+        return Symbol::new(&"none".to_string(), &"none".to_string(), &"none".to_string(),0);
+    }
+
+    pub fn exist(&mut self, n:String)->bool
+    {
+        for s in &self.MethodSymbolTable
+        {
+            if s.Name == n {return true;}
+        }
+
+        for r in &self.ClassSymbolTable
+        { 
+            if r.Name == n {return true;}
+        }
+        return false;
+    }
+}
+
+//end of symbol table
+
+//class HelpIndex
+struct HelpIndex {
+	IfIndex:i8,
+    WhileIndex:i8,
+    flag:bool,
+    className:String
+}
+
+impl HelpIndex
+{
+	pub fn new() -> HelpIndex {
+		HelpIndex 
+        {
+            IfIndex:-1,
+            WhileIndex:-1,
+            flag:false, 
+            className:"".to_string()
+        }
+    }
+ }
+
+
+
+fn getNextToken(buffer:&String, mut countSplit:&mut usize)-> String
+{
+    let off = *countSplit;
+    let vec: Vec<&str> = buffer.split("\n").collect(); 
+    let mut vecSymbol: Vec<&str> = vec[off].split(' ').collect();
+    *countSplit += 1;
+    return vecSymbol[1].to_string();
+}
+
+fn CheckNextTokenType(buffer:&String, mut countSplit:&mut usize)-> String
+{
+    let off = *countSplit;
+    let vec: Vec<&str> = buffer.split("\n").collect(); 
+    let mut vecSymbol: Vec<&str> = vec[off].split(' ').collect();
+    return vecSymbol[0].to_string();
+}
+
+fn CheckNextToken(buffer:&String, mut countSplit:&mut usize)-> String
+{
+    let off = *countSplit;
+    let vec: Vec<&str> = buffer.split("\n").collect(); 
+    let mut vecSymbol: Vec<&str> = vec[off].split(' ').collect();
+    return vecSymbol[1].to_string();
+}
+
+fn CheckCurrentLable(buffer:&String, mut countSplit:&mut usize)-> String
+{
+    let off = *countSplit;
+    let vec: Vec<&str> = buffer.split("\n").collect(); 
+    let mut vecSymbol: Vec<&str> = vec[off].split(' ').collect();
+    return vecSymbol[0].to_string();
+}
+
+fn getNextTokenWithOutWhiteSpace(buffer:&String, mut countSplit:&mut usize)-> String
+{
+    let off = *countSplit;
+    let vec: Vec<&str> = buffer.split("\n").collect(); 
+    let mut vecSymbol: Vec<&str> = vec[off].split('>').collect();
+    let mut vecSymbol2: Vec<&str> = vecSymbol[1].split('<').collect();
+    let mut temp:String = vecSymbol2[0].to_string();
+    let mut i=0;
+    let mut resultString:String = ("").to_owned();
+    *countSplit += 1; //white spaces problem
+        for c in temp.chars()
+    {
+        if i != 0 && i!= temp.len()-1
+        {
+            resultString = format!("{}{}", resultString, c.to_string());
+        }
+        i+=1;
+    }
+    return resultString.to_string();
+}
+
+
+// 'class' className '{' classVarDec* subroutineDec* '}'
+fn func_class(buffer:String, mut countSplit:&mut usize, mut table:&mut SymbolTable ,mut strVml:&mut String) 
+{
+    let mut Help_Index=HelpIndex::new();
+    let mut strTemp:String = ("").to_owned();
+    let mut strNTemp:String = ("").to_owned();
+    *countSplit += 1; // 'class'
+    {
+        let className = &mut Help_Index.className;
+        *className = getNextToken(&buffer, &mut countSplit); // className
+    }
+    println!("{}",Help_Index.className.to_string());
+    *countSplit += 1; // '{'
+    println!("{}",CheckNextToken(&buffer,&mut countSplit).to_string());
+    while CheckNextToken(&buffer,&mut countSplit) == "static" || CheckNextToken(&buffer,&mut countSplit) == "field" 
+    {
+         func_classVarDec(&buffer, &mut countSplit, &mut table, &mut strVml); // classVarDec*
+         if CheckCurrentLable(&buffer,&mut countSplit) == "</tokens>" {break;}
+    }
+    while CheckNextToken(&buffer,&mut countSplit) == "constructor" || CheckNextToken(&buffer,&mut countSplit) =="function"  || CheckNextToken(&buffer,&mut countSplit) == "method"
+    {
+         func_subroutineDec(&buffer, &mut countSplit, &mut table,&mut strVml,  &mut Help_Index); // subroutineDec*      
+         if CheckCurrentLable(&buffer,&mut countSplit) == "</tokens>" {break;}
+    }
+}
+
+// ('static' | 'field' ) type varName (',' varName)* ';'
+fn func_classVarDec(buffer:&String, mut countSplit:&mut usize, mut table:&mut SymbolTable, mut strVml:&mut String)
+{
+    let mut kind_ = getNextToken(&buffer, &mut countSplit); // ('static' | 'field' )
+    let mut type_ = getNextToken(&buffer, &mut countSplit); // type
+    let mut name_ = getNextToken(&buffer, &mut countSplit); // varName
+    table.insertSymbol(Symbol::new(&kind_, &type_, &name_,0));
+
+    while CheckNextToken(&buffer,&mut countSplit)!= (";")  // (',' varName)*
+    {
+        *countSplit += 1; // ','
+        let mut name_ = getNextToken(&buffer, &mut countSplit); // varName
+        table.insertSymbol(Symbol::new(&kind_, &type_, &name_,0));
+    }
+     *countSplit += 1; // ';'
+}
+
+// subroutineDec: ('constructor' | 'function' | 'method') ('void' | type) subroutineName '(' parameterList ')' subroutineBody
+// subroutineBody: '{' varDec* statements '}'
+fn func_subroutineDec(buffer:&String, mut countSplit:&mut usize, mut table:&mut SymbolTable, mut strVml:&mut String, mut Help_Index:&mut HelpIndex)
+{
+    
+    {
+        let IfIndex = &mut Help_Index.IfIndex;
+        let WhileIndex = &mut Help_Index.WhileIndex;
+        *IfIndex =-1;
+        *WhileIndex=-1;
+    }
+
+    let mut strTemp:String = ("").to_owned();
+    let mut subroutineKind = getNextToken(&buffer, &mut countSplit);  //('constructor' | 'function' | 'method')
+    *countSplit += 1;                                                 //('void' | type)
+    let mut subroutineName = getNextToken(&buffer, &mut countSplit);  //subroutineName
+    table.methodSymbolTableInit();
+                                                                   
+    if subroutineKind == "method"
+    {
+        table.insertSymbol(Symbol::new(&"argument".to_string(), &Help_Index.className, &"this".to_string(),0));
+    }
+
+    *countSplit += 1;  // '('
+    func_parameterList(&buffer,  &mut countSplit, &mut table); // parameterList
+    *countSplit += 1; //') {'
+   
+     while CheckNextToken(&buffer,&mut countSplit) == "var"
+    {
+        func_varDec(&buffer,  &mut countSplit, &mut table, &mut Help_Index); // varDec*
+    }
+
+   // *countSplit += 1; 
+    *strVml =format!("{}{}",*strVml, "function ".to_string() + &Help_Index.className + "." + &subroutineName + " " + &table.VarIndex.to_string()  + "\n");
+
+    if subroutineKind=="constructor"
+    {
+        *strVml =  format!("{}{}",*strVml,"push constant ".to_string() + &table.FieldIndex.to_string() + "\n"); 
+        *strVml = format!("{}{}",*strVml, "call Memory.alloc 1\n");
+        *strVml = format!("{}{}",*strVml, "pop pointer 0\n");
+    }
+    else if  subroutineKind == "method"
+    {
+        *strVml = format!("{}{}",*strVml, "push argument 0\n");
+        *strVml = format!("{}{}",*strVml, "pop pointer 0\n");
+    }
+
+    func_statements(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index); // statements
+    *countSplit += 1;  // '}'
+}
+
+// ( (type varName) (',' type varName)*)?
+ fn func_parameterList(buffer:&String, mut countSplit:&mut usize, mut table:&mut SymbolTable)
+{
+    if CheckNextToken(&buffer,&mut countSplit) != ")"
+    {
+        let mut type_ = getNextToken(&buffer, &mut countSplit); // type
+        let mut name_ = getNextToken(&buffer, &mut countSplit); // varName
+        table.insertSymbol(Symbol::new(&"argument".to_string(), &type_, &name_,0));
+    }
+  
+    while CheckNextToken(&buffer,&mut countSplit) != ")"
+    {
+        *countSplit += 1; // ','
+        let mut type_ = getNextToken(&buffer, &mut countSplit); // type
+        let mut name_ = getNextToken(&buffer, &mut countSplit); // varName
+        table.insertSymbol(Symbol::new(&"argument".to_string(), &type_, &name_,0));
+    }
+    *countSplit += 1;
+}
+
+// 'var' type varName (',' varName)* ';'
+fn func_varDec(buffer:&String, mut countSplit:&mut usize, mut table:&mut SymbolTable, mut Help_Index:&mut HelpIndex)
+{
+
+    let mut kind_ = getNextToken(&buffer, &mut countSplit);
+    let mut type_ = getNextToken(&buffer, &mut countSplit);
+    let mut name_ = getNextToken(&buffer, &mut countSplit);
+    table.insertSymbol(Symbol::new(&kind_, &type_, &name_,0));
+    
+    while CheckNextToken(&buffer,&mut countSplit) != ";"  //(',' varName)*
+    {   
+        *countSplit += 1;
+        let mut name_ = getNextToken(&buffer, &mut countSplit); // varName
+        table.insertSymbol(Symbol::new(&kind_, &type_, &name_,0));
+    }
+
+     *countSplit += 1;  //;
+}
+
+// statement*
+// letStatement | ifStatement | whileStatement | doStatement | returnStatement
+fn func_statements(buffer:&String, mut countSplit:&mut usize, mut table:&mut SymbolTable, mut strVml:&mut String, mut Help_Index:&mut HelpIndex)
+{
+  //Help_Index.Help_Index.Help_Index,Help_Index
+     while CheckNextToken(&buffer,&mut countSplit) != "}"
+    {
+        println!("{}",CheckNextToken(&buffer,&mut countSplit));
+        if CheckNextToken(&buffer,&mut countSplit) == "let" {func_letStatement(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);}
+       
+        if CheckNextToken(&buffer,&mut countSplit) =="if" {func_ifStatement(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);}
+
+        if CheckNextToken(&buffer,&mut countSplit) == "while" {func_whileStatement(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);}
+
+        if CheckNextToken(&buffer,&mut countSplit) == "do" {func_doStatement(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);}
+
+        if CheckNextToken(&buffer,&mut countSplit).contains("return") {func_returnStatement(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);}
+     }
+}
+
+// 'let' varName ('[' expression ']')? '=' expression ';'
+fn func_letStatement(buffer:&String, mut countSplit:&mut usize, mut table:&mut SymbolTable, mut strVml:&mut String, mut Help_Index:&mut HelpIndex)
+{
+    *countSplit += 1; 
+    let mut name_ = getNextToken(&buffer, &mut countSplit);
+    let mut kind_ = convertKind(&table.findSymbol(name_.to_string()).Kind);
+    let mut index_ = table.findSymbol(name_.to_string()).Index;
+   // *countSplit += 1; 
+
+    println!("{}",CheckNextToken(&buffer,&mut countSplit));
+    if CheckNextToken(&buffer,&mut countSplit) == "["
+    {
+        *countSplit += 1; // '['
+        func_expression(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);
+        *strVml = format!("{}{}", *strVml, "push ".to_string() +&kind_.to_string() + " " + &index_.to_string() + "\n");
+        *strVml = format!("{}{}", *strVml, "add\n");
+       // *strVml = format!("{}{}", *strVml, "pop temp 0\n");//?????????OOOOOOOOO
+        *countSplit += 2; // '] ='
+        func_expression(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);
+     //   *countSplit += 1; // '}'
+        *strVml = format!("{}{}", *strVml, "pop temp 0\n");
+        *strVml = format!("{}{}", *strVml, "pop pointer 1\n");
+        *strVml = format!("{}{}", *strVml, "push temp 0\n");
+        *strVml = format!("{}{}", *strVml, "pop that 0\n");
+     }
+
+    else
+    {
+        *countSplit += 1; // '='
+        func_expression(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);
+        *strVml = format!("{}{}", *strVml, "pop ".to_string() + &kind_.to_string() + " " + &index_.to_string() + "\n");
+    }
+    println!("{}",CheckNextToken(&buffer,&mut countSplit));
+    if CheckNextToken(&buffer,&mut countSplit) == ";" { 
+        *countSplit += 1; }
+}
+
+// 'if' '(' expression ')' '{' statements '}' ( 'else' '{' statements '}' )?
+fn func_ifStatement(buffer:&String, mut countSplit:&mut usize, mut table:&mut SymbolTable, mut strVml:&mut String, mut Help_Index:&mut HelpIndex)
+{
+    {
+        let IfIndex = &mut Help_Index.IfIndex;
+        *IfIndex += 1;
+    }
+    let mut  else_bool = false;
+    let mut  h = HelpIndex::new();
+     h.IfIndex =Help_Index.IfIndex;
+    *countSplit += 2;
+    func_expression(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);
+    *countSplit = *countSplit + 2;
+    *strVml = format!("{}{}", *strVml, "if-goto IF_TRUE".to_string() + &Help_Index.IfIndex.to_string() + "\n");
+    *strVml = format!("{}{}", *strVml, "goto IF_FALSE".to_string() +  &Help_Index.IfIndex.to_string() + "\n");
+    *strVml = format!("{}{}", *strVml, "label IF_TRUE".to_string() + &Help_Index.IfIndex.to_string() + "\n");
+    func_statements(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);
+    *countSplit += 1;
+    if CheckNextToken(&buffer,&mut countSplit) == "else"
+    {*strVml = format!("{}{}", *strVml, "goto IF_END".to_string() + &h.IfIndex.to_string() + "\n");
+     else_bool = true;}
+    *strVml = format!("{}{}", *strVml, "label IF_FALSE".to_string() + &h.IfIndex.to_string() + "\n");
+    
+    if CheckNextToken(&buffer,&mut countSplit) == "else"
+    {
+        *countSplit += 2;
+        func_statements(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);
+        *countSplit += 1;
+    }
+    if else_bool
+    {*strVml = format!("{}{}", *strVml, "label IF_END".to_string() + &h.IfIndex.to_string() + "\n");}
+}
+
+// 'while' '(' expression ')' '{' statements '}'
+fn func_whileStatement(buffer:&String, mut countSplit:&mut usize, mut table:&mut SymbolTable, mut strVml:&mut String, mut Help_Index:&mut HelpIndex)
+{
+    {
+        let WhileIndex = &mut Help_Index.WhileIndex;
+        *WhileIndex += 1;
+    }
+    let mut  h = HelpIndex::new();
+     h.WhileIndex =Help_Index.WhileIndex;
+    *countSplit += 1; // 'while'
+    *strVml = format!("{}{}", *strVml, "label WHILE_EXP".to_string() + &Help_Index.WhileIndex.to_string() + "\n");
+    *countSplit += 1; // '('
+    func_expression(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);
+    *countSplit += 1; // ')'
+    *strVml = format!("{}{}", *strVml, "not\n");
+    *countSplit += 1; // '{'
+    *strVml = format!("{}{}", *strVml, "if-goto WHILE_END".to_string() + &Help_Index.WhileIndex.to_string() + "\n");
+    func_statements(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);
+    *strVml = format!("{}{}", *strVml, "goto WHILE_EXP".to_string() + &h.WhileIndex.to_string() + "\n");
+    *strVml = format!("{}{}", *strVml, "label WHILE_END".to_string() + &h.WhileIndex.to_string() + "\n");
+    *countSplit += 1;
+}
+
+// 'do' subroutineCall ';'
+fn func_doStatement(buffer:&String, mut countSplit:&mut usize, mut table:&mut SymbolTable, mut strVml:&mut String, mut Help_Index:&mut HelpIndex)
+{
+    *countSplit += 1; // 'do'
+    func_subroutineCall(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);
+    *strVml = format!("{}{}", *strVml, "pop temp 0\n");
+    *countSplit += 1; //';'
+}
+
+// 'return' expression? ';'
+fn func_returnStatement(buffer:&String, mut countSplit:&mut usize, mut table:&mut SymbolTable, mut strVml:&mut String, mut Help_Index:&mut HelpIndex)
+{
+    *countSplit += 1; // 'return'
+    println!("{}",CheckNextToken(&buffer,&mut countSplit));
+    if !CheckNextToken(&buffer,&mut countSplit).contains(";") {func_expression(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);}
+    else {*strVml = format!("{}{}", *strVml, "push constant 0\n");}
+    *strVml = format!("{}{}", *strVml, "return\n");
+    *countSplit += 1;
+}
+
+// term (op term)*
+fn func_expression(buffer:&String, mut countSplit:&mut usize, mut table:&mut SymbolTable, mut strVml:&mut String, mut Help_Index:&mut HelpIndex)
+{
+    let mut op;
+    func_term(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);
+    println!("{}",CheckNextToken(&buffer,&mut countSplit).to_string());
+    while checkOp(&CheckNextToken(&buffer,&mut countSplit).to_string())
+    {
+       op = getNextToken(&buffer, &mut countSplit);
+       func_term(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);
+
+       if convertOp(&op) != "".to_string() {*strVml = format!("{}{}", *strVml, convertOp(&op) + "\n");}
+       else if op == "*".to_string() {*strVml = format!("{}{}", *strVml, "call Math.multiply 2\n");}
+       else if op == "/".to_string() {*strVml = format!("{}{}", *strVml, "call Math.divide 2\n");}
+    }
+
+}
+
+// integerConstant | stringConstant | keywordConstant | varName |
+// varName '[' expression ']' | subroutineCall | '(' expression ')' | unaryOp term
+fn func_term(buffer:&String, mut countSplit:&mut usize, mut table:&mut SymbolTable, mut strVml:&mut String, mut Help_Index:&mut HelpIndex)
+{
+    let mut kind_:String = ("").to_owned();
+    let mut index_;
+    if convertOpUnary(CheckNextToken(&buffer,&mut countSplit)) != "".to_string()
+    {
+        let unaryOp = convertOpUnary(getNextToken(&buffer, &mut countSplit)); // unaryOp
+        func_term(&buffer ,&mut countSplit, &mut table, &mut strVml,  &mut Help_Index); // term
+        *strVml = format!("{}{}", *strVml, unaryOp + "\n");
+    }
+    else if CheckNextToken(&buffer,&mut countSplit) == "("
+    {
+        *countSplit +=1; //(
+        func_expression(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index); //expression
+        *countSplit +=1;   //)
+
+     }
+    else if CheckNextTokenType(&buffer,&mut countSplit) == "<integerConstant>" // integerConstant
+    {
+        *strVml = format!("{}{}", *strVml, "push constant ".to_string() + &getNextToken(&buffer, &mut countSplit).to_string() +"\n");
+    }
+    else if CheckNextTokenType(&buffer,&mut countSplit) == "<stringConstant>" // stringConstant
+    {
+        let mut tempStr = getNextTokenWithOutWhiteSpace(&buffer, &mut countSplit);
+        *strVml = format!("{}{}", *strVml, "push constant ".to_string() + &tempStr.len().to_string() +"\n");
+        *strVml = format!("{}{}", *strVml, "call String.new 1\n");
+        
+        for c in tempStr.chars()
+        {
+            let mut b = c as u8;
+            *strVml = format!("{}{}", *strVml, "push constant ".to_string() + &b.to_string() +"\n");
+            *strVml = format!("{}{}", *strVml, "call String.appendChar 2\n");
+        }
+    }
+    else if CheckNextTokenType(&buffer,&mut countSplit) == "<keyword>" // keyword
+    {
+       if CheckNextToken(&buffer,&mut countSplit) == "this" { *strVml = format!("{}{}", *strVml, "push pointer 0\n");}
+       else
+       {
+            *strVml = format!("{}{}", *strVml, "push constant 0\n");
+             if CheckNextToken(&buffer,&mut countSplit) == "true" { *strVml = format!("{}{}", *strVml, "not\n");}
+        }
+        *countSplit +=1; // 'keyWord'
+    }
+    else // first is a var or subroutine
+    {
+        let mut name_ = getNextToken(&buffer, &mut countSplit);
+        if CheckNextToken(&buffer,&mut countSplit) == "[" 
+        {
+            *countSplit +=1;  // '['
+            func_expression(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index); //expression
+            *countSplit +=1; // ']'
+
+            kind_ = convertKind(&table.findSymbol(name_.to_string()).Kind);
+            index_ = table.findSymbol(name_.to_string()).Index;
+            *strVml = format!("{}{}", *strVml, "push ".to_string() + &kind_.to_string()+ " " + &index_.to_string() +"\n");
+            *strVml = format!("{}{}", *strVml, "add\n");
+            *strVml = format!("{}{}", *strVml, "pop pointer 1\n");
+            *strVml = format!("{}{}", *strVml, "push that 0\n");
+            println!("{:?}",*strVml );
+            *countSplit +=1;
+        }
+        else if CheckNextToken(&buffer,&mut countSplit) == "(" || CheckNextToken(&buffer,&mut countSplit) == "."
+        {
+            *countSplit -=1;
+            func_subroutineCall(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);
+            if CheckNextToken(&buffer,&mut countSplit) == ")"{*countSplit +=1;}
+        }
+        else
+        {
+            kind_ = convertKind(&table.findSymbol(name_.to_string()).Kind);
+            index_ = table.findSymbol(name_.to_string()).Index;
+            *strVml = format!("{}{}", *strVml, "push ".to_string() + &kind_.to_string()+ " " + &index_.to_string() +"\n");
+        }
+     }
+    
+}
+
+
+//subroutineCall: subroutineName '(' expressionList ')' | ( className | varName) '.' subroutineName '(' expressionList ')'
+fn func_subroutineCall(buffer:&String, mut countSplit:&mut usize, mut table:&mut SymbolTable, mut strVml:&mut String, mut Help_Index:&mut HelpIndex)
+{
+    let mut id_ = getNextToken(&buffer, &mut countSplit);  //(subroutineName | className | varName)
+    let mut funcName:String = ("").to_owned();
+    let mut subroutineName:String = ("").to_owned();
+    let mut kind_:String = ("").to_owned();
+    let mut index_;
+    let mut numArgs = 0;
+    if CheckNextToken(&buffer,&mut countSplit) == "."
+    {
+        *countSplit+=1;   // '.'
+        subroutineName =  getNextToken(&buffer, &mut countSplit);  //subroutineName
+        let mut type_ = table.findSymbol(id_.to_string()).Type;
+
+        if type_ != "none".to_string()  // this
+        {
+           kind_ = convertKind(&table.findSymbol(id_.to_string()).Kind);
+           index_ = table.findSymbol(id_.to_string()).Index;
+           *strVml = format!("{}{}", *strVml, "push ".to_string() + &kind_.to_string() + " " + &index_.to_string() + "\n");
+            
+           funcName = format!("{}{}", type_, ".".to_string() + &subroutineName.to_string());
+           numArgs +=1;
+        }
+        else  // it's a class
+        {
+           funcName = format!("{}{}", id_, ".".to_string() + &subroutineName.to_string());
+        }
+    }
+    else if CheckNextToken(&buffer,&mut countSplit) == "("
+    {
+        subroutineName =  id_; 
+        funcName = format!("{}{}", &Help_Index.className.to_string(), ".".to_string() + &subroutineName.to_string());
+        numArgs +=1;
+        *strVml = format!("{}{}", *strVml, "push pointer 0\n");
+       
+    }
+     *countSplit+=1; // '('
+     if CheckNextToken(&buffer,&mut countSplit) != ")" 
+    {
+     numArgs += func_expressionList(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);
+     println!("{}",CheckNextToken(&buffer,&mut countSplit).to_string());
+    }
+    *countSplit +=1; // ')'
+    *strVml = format!("{}{}", *strVml, "call ".to_string() + &funcName.to_string() + " " + &numArgs.to_string() + "\n");
+
+    //    if CheckNextToken(&buffer,&mut countSplit) == ")"
+    //    {
+    //        *strVml = format!("{}{}", *strVml, "call ".to_string() + &funcName.to_string() + " " + &numArgs.to_string() + "\n");
+    //        return;
+    //    }
+    //    else
+    //    {   
+    //        id_ =  getNextToken(&buffer, &mut countSplit);
+    //        kind_ = convertKind(&table.findSymbol(id_.to_string()).Kind);
+    //        index_ = table.findSymbol(id_.to_string()).Index;
+    //        *strVml = format!("{}{}", *strVml, kind_ + &index_.to_string() +"\n");
+    //        numArgs +=1;
+    //    }
+    //}
+    //*countSplit +=2; //(
+    //if CheckNextToken(&buffer,&mut countSplit) != ")"
+    //{
+    //    numArgs += func_expressionList(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);
+    //    *countSplit +=1; //)
+    //}
+
+    //*strVml = format!("{}{}", *strVml, "call ".to_string() + &funcName.to_string() + " " + &numArgs.to_string() + "\n");
+}
+
+
+// (expression (',' expression)* )?
+fn func_expressionList(buffer:&String, mut countSplit:&mut usize, mut table:&mut SymbolTable, mut strVml:&mut String, mut Help_Index:&mut HelpIndex)->i8
+{
+    
+    let mut numArgs = 0;
+     if CheckNextToken(&buffer,&mut countSplit) != ")"
+        {
+           numArgs +=1;
+           func_expression(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);
+        }
+    while CheckNextToken(&buffer,&mut countSplit) != ")"
+        {
+           numArgs +=1;
+           *countSplit +=1;
+           func_expression(&buffer ,&mut countSplit, &mut table, &mut strVml, &mut Help_Index);
+        }
+    return numArgs;
+}
+
+
+
+fn checkOp(op:&String)-> bool
+{
+    let symboles = ["+","-","*","&amp","/","|","=","&lt","&gt"];
+    for i in 0..symboles.len() 
+    {
+        if op == symboles[i] { return true;}
+    }
+    return false;
+}
+
+fn convertKind(s:&String)->String
+{
+     match &s as &str {
+            "var" => return "local".to_string(),
+            "static" => return "static".to_string(),
+            "field" => return "this".to_string(),
+            "argument" => return "argument".to_string(),
+            _ => "".to_string()
+        }
+    
+}
+
+fn convertOp(op:&String)-> String
+{
+      match &op as &str {
+            "+" => return "add".to_string(),
+            "-" => return "sub".to_string(),
+            "&amp" => return "and".to_string(),
+            "|" => return "or".to_string(),
+            "=" => return "eq".to_string(),
+            "&lt" => return "lt".to_string(),
+            "&gt" => return "gt".to_string(),
+            _ => "".to_string()
+        }
+}
+
+fn convertOpUnary(op:String)-> String
+{
+      match &op as &str {
+            "-" => return "neg".to_string(),
+            "~"=> return "not".to_string(),
+            _ => "".to_string()
+        }
+}
+
+fn checkSymbolse(c: char)-> bool
+{
+	let symboles: [char; 19] = ['{','}','(' , ')' , '[' , ']' ,'/', '.' , ',' ,'*', ';' , '+' , '-' , '&' , '|' , '<' ,'>' , '=' , '~' ];
+    
+    for i in 0..symboles.len() {
+        if c == symboles[i]
+        {return true;}
+    }
+    return false;
+}
+
+fn chechKeyWord(s:String)-> bool
+{
+    let keyWord = ["class" , "constructor" , "function" , "method" , "field" , "static" ,"var" , "int" , "char" , "boolean" , "void" , "true" ,
+                                 "false" , "null" , "this" , "let" , "do" , "if" , "else" , "while" , "return"];
+
+    for i in 0..keyWord.len() {
+        if s== keyWord[i]
+          {
+            return true;
+          }
+    }
+    return false;
+}
+
+
+
+fn addToken(token:String)->String
+{
+    let mut strTemp:String = ("").to_owned(); 
+                          
+    if chechKeyWord(token.to_string())
+     {               
+         strTemp = format!("{}{}",strTemp,"<keyword> ");
+         strTemp = format!("{}{}",strTemp,token);
+         strTemp = format!("{}{}",strTemp," </keyword>\n");
+    }
+    
+    else if token.parse::<f64>().is_ok()
+    {
+        strTemp = format!("{}{}",strTemp,"<integerConstant> ");
+        strTemp = format!("{}{}",strTemp,token);
+        strTemp = format!("{}{}",strTemp," </integerConstant>\n");
+    }
+    else 
+    {
+        strTemp = format!("{}{}",strTemp,"<identifier> ");
+        strTemp = format!("{}{}",strTemp,token);
+        strTemp = format!("{}{}",strTemp," </identifier>\n");
+    }
+
+    return strTemp;
+}
+
+fn addTokenString(token:String)->String
+{
+    let mut strTemp:String = ("").to_owned();
+    strTemp = format!("{}{}",strTemp,"<stringConstant> ");
+    strTemp = format!("{}{}",strTemp,token);
+    strTemp = format!("{}{}",strTemp," </stringConstant>\n");
+    
+    return strTemp;
+}
+
+
+fn main() 
+{
+    
+    let path="D:\\a";
+    let path_dir = Path::new(path.clone());
+    let mut theXmlFileName:String="".to_string();
+    //open the folder to read the files in it
+    let my_files = fs::read_dir(&path_dir).unwrap();
+
+    for source_file in my_files
+	{   
+		let tmp_file = source_file.unwrap().path();
+        if tmp_file.extension().unwrap() == "jack" 
+		{
+             let xmlT_file = tmp_file.file_stem().unwrap();
+             let theXmlFileName = xmlT_file.to_str().unwrap();
+             let file_name = tmp_file.display().to_string();
+             let mut file = BufReader::new(File::open(file_name).expect("open failed"));
+             
+             let mut buf = Vec::<u8>::new();
+             let mut strXml:String = ("<tokens>\n").to_owned();   
+             let mut tempWord:String = ("").to_owned();
+              let mut foundComments = false;
+
+
+             while file.read_until(b'\n', &mut buf).expect("read_until failed") != 0 {
+                // this moves the ownership of the read data to s. there is no allocation
+                let s = String::from_utf8(buf).expect("from_utf8 failed");
+
+               let mut foundS = false;
+               let char_vec:Vec<char> = s.chars().collect();
+               
+               for i in 0..char_vec.len() 
+               {
+                    if foundComments
+                    {
+                        for j in i..char_vec.len()-1
+                        {
+                            let x = char_vec[j];
+                            let b = x as u8;
+                            if b==42
+                            {
+                                let x = char_vec[j+1];
+                                let b = x as u8;
+                           
+                                if b==47
+                                {
+                                  foundComments=false;
+                                  break ;
+                                } 
+                            }
+                        }
+                        break;  
+                    }
+
+                    let c = char_vec[i];
+                    let b = c as u8;
+                  
+                    if b==34 //"
+                    {
+                        if !foundS
+                        {
+                            foundS = true;
+                        }
+                        else
+                        {
+                            foundS = false;
+                            let strTemp = addTokenString(tempWord.to_string());
+                            strXml = format!("{}{}",strXml,strTemp);
+                            tempWord = "".to_string();
+                        }
+                    }
+
+                     else if b==47
+                    {
+                        let x = char_vec[i+1];
+                        let b = x as u8;
+                        if b==47
+                        {
+                            break;
+                        }
+                        else if b==42
+                        {
+                           let x = char_vec[i+2]; 
+                           let b = x as u8;
+                            if b==42
+                            {
+                                foundComments=true;
+                                for j in i+3..char_vec.len()-1
+                                {
+                                    let x = char_vec[j];
+                                    let b = x as u8;
+                                    
+                                    if b==42
+                                    {
+                                        let x = char_vec[j+1];
+                                        let b = x as u8;
+                                    
+                                        if b==47
+                                        {
+                                            foundComments=false;
+                                            //i=j;
+                                            break ;
+                                        } 
+                                    }
+                                }
+
+                                break; 
+                            }
+                        }
+                        else 
+                        {
+                            strXml = format!("{}{}",strXml,"<symbol> ");
+                            strXml = format!("{}{}",strXml,c.to_string());
+                            strXml = format!("{}{}",strXml," </symbol>\n");
+                        }                       
+                    }
+
+
+
+                    else if checkSymbolse(c) &&  !foundS 
+                    {  
+                        if tempWord.to_string() != ""
+                        {
+                           let strTemp = addToken(tempWord.to_string());
+                           strXml = format!("{}{}",strXml,strTemp);
+                        }
+                           strXml = format!("{}{}",strXml,"<symbol> ");
+                           if c.to_string() == "<"  {strXml = format!("{}{}",strXml,"&lt");}
+                           else if c.to_string() == ">"  {strXml = format!("{}{}",strXml,"&gt");}
+                           else if c.to_string() == "=="  {strXml = format!("{}{}",strXml,"&eq");}
+                           else if c.to_string() == "&"  {strXml = format!("{}{}",strXml,"&amp");} 
+                           else {strXml = format!("{}{}",strXml,c.to_string());}
+                           strXml = format!("{}{}",strXml," </symbol>\n");
+                           tempWord = "".to_string();
+                        
+                    } 
+
+                    else if (b==32 || b==10 || b==13 || b==9 )  &&  !foundS
+                    {
+                        if tempWord.to_string() != ""
+                        {
+                            let strTemp = addToken(tempWord.to_string());
+                            strXml = format!("{}{}",strXml,strTemp);
+                        }
+                            tempWord = "".to_string();
+                    }
+
+
+                    else
+                    {
+                      tempWord= format!("{}{}",tempWord,c.to_string());
+                    }
+                 }
+
+
+                 // this returns the ownership of the read data to buf. there is no allocation
+                 buf = s.into_bytes();
+                 buf.clear();
+              }
+
+              strXml.push_str("</tokens>\n");
+              let xml_path = path.to_string()+"\\"+ theXmlFileName + "T.xml";
+              let xml_file = File::create(xml_path).unwrap();
+              let mut  xml_file = BufWriter::new(xml_file);
+              xml_file.write_fmt(format_args!("{}", strXml)); 
+              xml_file.flush();
+           }      
+    }
+    
+    let my_files_T = fs::read_dir(&path_dir).unwrap();
+
+     for source_file in my_files_T
+	{   
+		let tmp_file = source_file.unwrap().path();
+        if tmp_file.file_name().unwrap().to_str().unwrap().contains("T.xml")
+		{
+            
+            let xmlT_file = tmp_file.file_stem().unwrap();
+            let file_nameT = tmp_file.display().to_string();
+
+            let mut file = BufReader::new(File::open(file_nameT).expect("open failed"));
+            let mut buffer = String::new();
+            let i = file.read_to_string(&mut buffer);
+  
+            let mut strVm:String = ("").to_owned();
+            let mut strTemp:String = ("").to_owned();
+            let mut countSplit = 1;
+            let mut countTab = "".to_string();
+
+            let vec: Vec<&str> = buffer.split('\n').collect();   
+            let mut line:String = vec[0].to_string();
+            let vecName: Vec<&str> = tmp_file.file_name().unwrap().to_str().unwrap().split("T.xml").collect(); 
+            let mut theXmlFileName=vecName[0];
+            println!("{}",theXmlFileName);
+
+            let mut table = SymbolTable::new();
+            func_class(buffer.to_string(),&mut countSplit,&mut table, &mut strVm);
+            //println!("{}",strVm);
+            let vm_path = path.to_string()+"\\"+ theXmlFileName + ".vm";
+            let vm_file = File::create(vm_path).unwrap();
+            let mut vm_file = BufWriter::new(vm_file);
+            vm_file.write_fmt(format_args!("{}", strVm)); 
+            vm_file.flush();
+        }
+     }
+}
+
